@@ -1,12 +1,13 @@
-using System;
-using LegacyOrderService.Models;
+using System.Globalization;
 using LegacyOrderService.Data;
+using LegacyOrderService.Exceptions;
+using LegacyOrderService.Models;
 
 namespace LegacyOrderService
 {
     class Program
     {
-        static void Main(string[] args)
+        static async Task Main(string[] args)
         {
             Console.WriteLine("Welcome to Order Processor!");
             Console.WriteLine("Enter customer name:");
@@ -29,9 +30,9 @@ namespace LegacyOrderService
             double price;
             try
             {
-                price = productRepo.GetPrice(product);
+                price = await productRepo.GetPriceAsync(product);
             }
-            catch (Exception ex)
+            catch (ProductNotFoundException ex)
             {
                 Console.WriteLine($"Error: {ex.Message}");
                 return;
@@ -46,24 +47,31 @@ namespace LegacyOrderService
 
             Console.WriteLine("Processing order...");
 
-            Order order = new Order();
-            order.CustomerName = name!;
-            order.ProductName = product!;
-            order.Quantity = qty;
-            order.Price = price;
-
-            double total = order.Quantity * order.Price;
+            Order order = new Order
+            {
+                CustomerName = name,
+                ProductName = product,
+                Quantity = qty,
+                Price = price
+            };
 
             Console.WriteLine("Order complete!");
             Console.WriteLine("Customer: " + order.CustomerName);
             Console.WriteLine("Product: " + order.ProductName);
             Console.WriteLine("Quantity: " + order.Quantity);
-            Console.WriteLine("Total: $" + total);
+            Console.WriteLine("Total: " + order.Total.ToString("C2", CultureInfo.CurrentCulture));
 
             Console.WriteLine("Saving order to database...");
             IOrderRepository repo = new OrderRepository();
-            repo.Save(order);
-            Console.WriteLine("Done.");
+            try
+            {
+                await repo.SaveAsync(order);
+                Console.WriteLine("Done.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error saving order: {ex.Message}");
+            }
         }
     }
 }
