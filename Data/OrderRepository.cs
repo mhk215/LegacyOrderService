@@ -6,7 +6,12 @@ namespace LegacyOrderService.Data
 {
     public class OrderRepository : IOrderRepository
     {
-        private string _connectionString = $"Data Source={Path.Combine(AppContext.BaseDirectory, "orders.db")}";
+        private readonly string _connectionString;
+
+        public OrderRepository(string connectionString)
+        {
+            _connectionString = connectionString ?? $"Data Source={Path.Combine(AppContext.BaseDirectory, "orders.db")}";
+        }
 
         public async Task SaveAsync(Order order, CancellationToken cancellationToken = default)
         {

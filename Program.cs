@@ -1,7 +1,11 @@
 using System.Globalization;
+using LegacyOrderService.Configuration;
 using LegacyOrderService.Data;
-using LegacyOrderService.Exceptions;
 using LegacyOrderService.Models;
+using LegacyOrderService.Services;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace LegacyOrderService
 {
@@ -9,69 +13,58 @@ namespace LegacyOrderService
     {
         static async Task Main(string[] args)
         {
+            using var host = CreateHost(args);
+            var orderService = host.Services.GetRequiredService<IOrderService>();
+
             Console.WriteLine("Welcome to Order Processor!");
             Console.WriteLine("Enter customer name:");
-            string? name = Console.ReadLine()?.Trim();
-            if (string.IsNullOrEmpty(name))
-            {
-                Console.WriteLine("Error: Customer name is required.");
-                return;
-            }
-
+            var name = Console.ReadLine()?.Trim();
             Console.WriteLine("Enter product name:");
-            string? product = Console.ReadLine()?.Trim();
-            if (string.IsNullOrEmpty(product))
-            {
-                Console.WriteLine("Error: Product name is required.");
-                return;
-            }
-
-            IProductRepository productRepo = new ProductRepository();
-            double price;
-            try
-            {
-                price = await productRepo.GetPriceAsync(product);
-            }
-            catch (ProductNotFoundException ex)
-            {
-                Console.WriteLine($"Error: {ex.Message}");
-                return;
-            }
-
+            var product = Console.ReadLine()?.Trim();
             Console.WriteLine("Enter quantity:");
-            if (!int.TryParse(Console.ReadLine(), out int qty) || qty <= 0)
+            if (!int.TryParse(Console.ReadLine(), out int qty))
+                qty = 0;
+
+            var result = await orderService.ProcessOrderAsync(name ?? "", product ?? "", qty);
+
+            if (!result.Success)
             {
-                Console.WriteLine("Error: Please enter a valid positive quantity.");
+                Console.WriteLine($"Error: {result.ErrorMessage}");
                 return;
             }
 
-            Console.WriteLine("Processing order...");
-
-            Order order = new Order
-            {
-                CustomerName = name,
-                ProductName = product,
-                Quantity = qty,
-                Price = price
-            };
-
+            var order = result.Order!;
             Console.WriteLine("Order complete!");
             Console.WriteLine("Customer: " + order.CustomerName);
             Console.WriteLine("Product: " + order.ProductName);
             Console.WriteLine("Quantity: " + order.Quantity);
             Console.WriteLine("Total: " + order.Total.ToString("C2", CultureInfo.CurrentCulture));
+            Console.WriteLine("Done.");
+        }
 
-            Console.WriteLine("Saving order to database...");
-            IOrderRepository repo = new OrderRepository();
-            try
-            {
-                await repo.SaveAsync(order);
-                Console.WriteLine("Done.");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error saving order: {ex.Message}");
-            }
+        static IHost CreateHost(string[] args)
+        {
+            return Host.CreateDefaultBuilder(args)
+                .ConfigureAppConfiguration((context, config) =>
+                {
+                    config.SetBasePath(AppContext.BaseDirectory);
+                    config.AddJsonFile("appsettings.json", optional: true);
+                })
+                .ConfigureServices((context, services) =>
+                {
+                    var configuration = context.Configuration;
+                    var dbSection = configuration.GetSection(DatabaseOptions.SectionName);
+                    services.Configure<DatabaseOptions>(dbSection);
+
+                    var ordersConnectionString = dbSection["OrdersConnectionString"] ?? "Data Source=orders.db";
+                    if (ordersConnectionString.Contains("orders.db") && !Path.IsPathRooted(ordersConnectionString))
+                        ordersConnectionString = $"Data Source={Path.Combine(AppContext.BaseDirectory, "orders.db")}";
+
+                    services.AddSingleton<IOrderRepository>(_ => new OrderRepository(ordersConnectionString));
+                    services.AddSingleton<IProductRepository, ProductRepository>();
+                    services.AddSingleton<IOrderService, OrderService>();
+                })
+                .Build();
         }
     }
 }
